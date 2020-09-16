@@ -1,0 +1,205 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Oluwadare, Margaret"
+date: "9/13/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+EXECUTIVE SUMMARY
+-----------------
+The goal of this data analysis is to predict the manner in which the user did the exercise. The training data set contains the target variable `classe`, of which other variables will be used for prediction. The best model that fits the data will be elicited using cross validation. Data preparation and cleaning will be done via removing columns that were not related to accelerometer reading and readings that were dominated by NA values reducing the variables from 160 to 53. The training data is partitioned into `Atrain` and `Atest` dataset which is used for training and validation respectively. The `cleantest` data set is used for the final prediction.
+
+The decision tree model will be used first, followed by the Random forest modela and finally Generalised boosted regression model will be used. The best model will be finally used to predict the `cleantest` data set.
+
+BACKGROUND
+----------
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).   
+
+DATA SOURCES
+------------
+The training data for this project is available here:  
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)  
+The test data is available here:  
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)  
+The data for this project comes from this original source: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har).  
+
+DATA LOADING AND PROCESSING
+---------------------------
+
+The following libraries are needed for the course of this project
+
+```{r loading libraries, error=FALSE, message=FALSE, warning=FALSE, results="hide"}
+library(rattle)
+library(rsample)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+library(RColorBrewer)
+library(scales)
+set.seed(3030)
+```
+DATA READING, CLEANING AND PARTITIONING  
+---------------------------------------
+After downloading the data from the data source, we can read the two csv files into two data frames and check their structures. From the result below, our training set is a data frame of 19622 observations of 160 varaibles. The test data is a data frame of 20 observations of 160 varaibles. The first seven columns contains some informations that we might not need in the course of our analysis; also there are some features that have NA's and missing observations. 
+```{r reading csv files, echo=TRUE}
+train <- read.csv("./pml-training.csv", header = TRUE)
+
+test <- read.csv("./pml-testing.csv", header = TRUE)
+
+str(train, 5)
+str(test, 5)
+```
+
+The full training dataset will be split into a training dataset (`Atrain`) and a testing? validation dataset (`Atest`). The testing data will be used to cross validate our models. To clean the data we get rid of NA's and near zero variables and blank spaces. Here we get the indexes of the columns having at least 70% of NA or blank values on the training dataset
+
+```{r Cleaning the data set, echo=TRUE}
+indColToRemove <- which(colSums(is.na(train) | train == "") > 0.7*dim(train)[1]) 
+
+cleantrain <- train[,-indColToRemove]
+cleantrain <- cleantrain[,-c(1:7)]
+dim(cleantrain)
+
+# We do the same for the test set
+indColToRemove <- which(colSums(is.na(test) | test == "") >0.7*dim(test)[1]) 
+cleantest <- test[,-indColToRemove]
+cleantest <- cleantest[,-c(1:7)]
+dim(cleantest)
+```
+After cleaning our training data set is reduced to a data frame of 19622 observations with 53 features; while our test data set is reduced to 20 observations of 53 features. To proceed , we will explore our taining data set by plotting the correlation matrix graphs of our training data set.
+
+```{r correlation matrix plot, echo=TRUE}
+corrplot(cor(cleantrain[, -length(names(cleantrain))]), method = "color", tl.cex = 0.5)
+```
+DATA PREPARATION FOR PREDICTION
+-------------------------------
+Preparing the training data for prediction by splitting the training data `cleantrain` into 70% as train data `Atrain` and 30% as test data `Atest`. This splitting will serve also to compute the out-of-sample errors. The split training data is renamed `Atrain` for the part that will be used for training and the cross validation data renamed as `Atest` (validate data) will stay as it is and will be used later to test the prediction algorithm on the 20 cases. The `Atrain` is a dataframe of 13737 observations of  53 variables, while `Atest` is a dataframe of 	5885 obs. of  53 variables. Hence the spliting is accurately done.
+
+```{r Data splitting, echo=TRUE}
+set.seed(123)
+cleantrain_split <- createDataPartition(y = cleantrain$classe, p = 0.70, list = FALSE)
+Atrain <- cleantrain[cleantrain_split, ] 
+Atest <- cleantrain[-cleantrain_split, ]
+
+str(Atrain, 5)
+str(Atest, 5)
+```
+The Dataset now consists of 53 variables with the observations divided as following:
+1. Training Data (Atrain): 13737 observations.
+2. Validation Data (Atest): 5885 observations.
+3. Testing Data: 20 observations.
+
+DATA MODELLING AND MACHINE LEARNING
+-----------------------------------
+1. DECISION TREE
+----------------
+We fit a predictive model for activity recognition using Decision Tree algorithm and we estimate the performance of the model on the validation data set.
+
+```{r decision tree algorithm, echo=TRUE}
+
+decitree <- rpart(classe ~ ., data = Atrain, method = "class")
+
+# Validate the decison tre  model with the validation data set
+predictTree <- predict(decitree, Atest, type = "class")
+
+# Plot out our model
+rpart.plot(decitree, main = "Classification Tree", extra = 102, under = TRUE, faclen = 0, cex = .4)
+prp(decitree)
+
+# calcaulate the confusion matrix
+confusionMatrix(factor(Atest$classe), predictTree)
+
+# check the accuracy and standard error
+deciAccu <- postResample(predictTree, factor(Atest$classe))
+decioutSE <- 1 - as.numeric(confusionMatrix(factor(Atest$classe),predictTree)$overall[1])
+deciAccu
+
+decioutSE
+percent(deciAccu)
+percent(decioutSE)
+```
+The estimated out of sample error with the cross validation dataset for this model is 24%. Accuracy for the decision tree is 75.7% with kappa as 69.3% which is an indication of substantial (in other words problematic and not good enough), hence we will try some other model- Random forest
+
+2. RANDOM FOREST
+----------------
+Set the random forest model with training and cross validation data
+
+```{r random forest model, echo=TRUE}
+RFpml <- randomForest(factor(classe)~.,data = Atrain, ntree = 250, keep.forest = T, xtest = Atest[-53], ytest = factor(Atest$classe))
+
+RFpml
+
+# validate model with the validation test data set
+rfpred <- predict(RFpml, Atest, type = "class")
+
+# calculate the confusion matrix
+confusionMatrix(rfpred, factor(Atest$classe))
+
+# estimate the accuracy and out of sample error
+accuracy <- postResample(Atest$classe, rfpred)
+ose <- 1 - as.numeric(confusionMatrix(rfpred,factor(Atest$classe))$overall[1])
+
+accuracy
+ose
+
+mean(RFpml$err.rate)
+
+mean(RFpml$test$err.rate)
+```
+
+In-Sample Error Rate Is the error rate for the predictions for input data (training data i.e `Atrain`) to the model. `OOB` error rate is 0.016. The `in-sample error rate` is  0.01046482. `Out Of Sample Error Rate` which is the error rate for predictions on the cross validated data provided to the model. It is normally higher than the in-sample error rate and is 0.007403291. A close observation of the accuracy for the `random forest` model shows 99.58% and a 99% `kappa` with an `out-of-sample-error` of about 0.004 which is highly negligible.
+
+we will simply try a third model just to be sure that we are actually gett ing what we desire from the `Random forest` model.
+
+3. PREDICTIONS WITH GENERALIZED BOOSTED RESGRESSION MODEL
+---------------------------------------------------------
+
+```{r Generalized boosted regression model, echo=TRUE}
+set.seed(2020)
+# set control parameter
+gbmcntl <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+
+#the gbm 
+gbmmod  <- train(classe ~ ., data = Atrain, method = "gbm", trControl = gbmcntl, verbose = FALSE)
+
+gbmmod$finalModel
+print(gbmmod)
+
+#Validate the GBM model and
+gbmpred <- predict(gbmmod, newdata = Atest)
+gbmconfusion <- confusionMatrix(factor(Atest$classe), gbmpred)
+gbmconfusion
+
+accuracyGBM <- postResample(Atest$classe, gbmpred)
+oseGBM <- 1 - as.numeric(confusionMatrix(gbmpred, factor(Atest$classe))$overall[1])
+
+accuracyGBM
+oseGBM
+```
+A gradient boosted generalized regression model with multinomial loss function is computed and 150 iterations were performed. There were 53 predictors of which 52 had non-zero influence. Also observing the accuaracy rate and out of sample of the `gbm` the sample is given as `96%` and `0.0366`. 
+
+Therefore we conclude that the `Random forest` model is out best choice for this work.
+
+PREDICTION FOR THE TEST VALIDATION DATA
+---------------------------------------
+Prediction for the test data is provided by the following line of code:
+
+```{r Prediction for the validation data, echo=TRUE}
+
+result <- predict(RFpml, cleantest)
+result
+
+# plot out the predicted result
+
+plot(RFpml, main="Predictive model of the Random Forest Model",  sub = "Random forest plot")
+```
+There is a certain element of randomness to randomforest, hence, hardware, operating system and time of use may effect the final answer. In the predicted plot above shows that increasing the number of trees improves accuracy, so increasing the number of trees, ntree would improve the accuracy of predictions. From the plot, it is apparent that error rates improve slowly for trees beyond about 50. Use the following answer key to check your output. `result=c("B","A","B","A","A","E","D","B","A","A","B","C","B","A","E","E","A","B","B","B")`
